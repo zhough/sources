@@ -42,12 +42,10 @@ class MHAttention(nn.Module):
         k = k.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
         v = v.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
 
-        # q = q.reshape(-1,seq_len,self.head_dim)
-        # k = k.reshape(-1,seq_len,self.head_dim)
-        # v = v.reshape(-1,seq_len,self.head_dim)
+
         #mask形状为[batch_size,seq_len]
-        mask = mask.unsqueeze(1).unsqueeze(2)   #[batch_size,1,1,seq_len]
-        mask = mask.repeat(1,self.num_heads,1,1)
+        mask = mask.unsqueeze(1).unsqueeze(3)   #[batch_size,1,seq_len,1]
+        mask = mask.repeat(1,self.num_heads,1,1)    #[batch_size,num_heads,seq_len,1]
         #mask = mask.reshape(-1,seq_len,1)   #[B*H,seq_len,1]
 
         output,_ = self.sdpattention(q,k,v,mask)   
@@ -76,10 +74,12 @@ class MQAttention(nn.Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
 
-        q = q.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
-        k = k.unsqueeze(1)
-        v = v.unsqueeze(1)
+        q = q.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)   #[batch_size,num_heads,seq_len,head_dim]
+        k = k.unsqueeze(1)  #[batch_size,1,seq_len,head_dim]
+        v = v.unsqueeze(1)  #[batch_size,1,seq_len,head_dim]
 
+        mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
+        mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
         output,_ = self.sdpattention(q,k,v,mask).transpose(1,2)
         output = output.reshape(batch_size,-1,self.embed_dim)
         output = self.o_proj(output)
@@ -89,8 +89,40 @@ class MQAttention(nn.Module):
 
 #Grouped-Query Attention
 class GQAttention(nn.Module):
-    def __init__(self):
+    def __init__(self,embed_dim,num_heads:int=8,num_groups:int=2):
         super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.num_groups = num_groups
+        self.head_dim = self.embed_dim // self.num_heads
+        self.group_dim = self.head_dim * self.num_groups
+        self.num_group_heads = self.num_heads // self.num_groups
+        self.q_proj = nn.Linear(self.embed_dim,self.embed_dim)
+        self.k_proj = nn.Linear(self.embed_dim,self.group_dim)
+        self.v_proj = nn.Linear(self.embed_dim,self.group_dim)
+        self.o_proj = nn.Linear(self.embed_dim,self.embed_dim)
+        self.sdpattention = SDPAttention()
+
+    def forward(self,x,mask=None):
+        batch_size,seq_len,_ = x.size()
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        q = q.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
+        k = k.repeat(1,1,self.num_group_heads)
+        v = v.repeat(1,1,self.num_group_heads)
+        k = k.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
+        v = v.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
+
+        mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
+        mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
+
+        output,_ = self.sdpattention(q,k,v,mask).transpose(1,2)
+        output = output.reshape(batch_size,-1,self.embed_dim)
+        output = self.o_proj(output)
+        return output   
+
+
 
 #稀疏注意力
 class SparseAttention(nn.Module):
