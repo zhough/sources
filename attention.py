@@ -15,7 +15,7 @@ class SDPAttention(nn.Module):
         if mask is not None:
             qk = qk.masked_fill(mask==0,value=-1e4)
         attn_weight = F.softmax(qk,dim=-1)
-        output = torch.matmul(qk,v)
+        output = torch.matmul(qk,v)     #[B,H,seq_len_q,embed_v]
         return output,attn_weight
     
 
@@ -79,7 +79,7 @@ class MQAttention(nn.Module):
         v = v.unsqueeze(1)  #[batch_size,1,seq_len,head_dim]
 
         mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
-        mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
+        #mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
         output,_ = self.sdpattention(q,k,v,mask).transpose(1,2)
         output = output.reshape(batch_size,-1,self.embed_dim)
         output = self.o_proj(output)
@@ -89,7 +89,7 @@ class MQAttention(nn.Module):
 
 #Grouped-Query Attention
 class GQAttention(nn.Module):
-    def __init__(self,embed_dim,num_heads:int=8,num_groups:int=2):
+    def __init__(self,embed_dim,num_heads:int=8,num_groups:int=4):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -109,13 +109,15 @@ class GQAttention(nn.Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
         q = q.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
-        k = k.repeat(1,1,self.num_group_heads)
-        v = v.repeat(1,1,self.num_group_heads)
-        k = k.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
-        v = v.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
+        k = k.reshape(batch_size,seq_len,self.num_group_heads,self.head_dim).transpose(1,2)
+        v = v.reshape(batch_size,seq_len,self.num_group_heads,self.head_dim).transpose(1,2)
+        k = k.repeat(1,self.num_groups,1,1)
+        v = v.repeat(1,self.num_groups,1,1)
+        
+        #q = q.unsqueeze(2)  #[B,H,1,seq_len,embed_dim]
 
-        mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
-        mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
+        mask = mask.unsqueeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
+        #mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
 
         output,_ = self.sdpattention(q,k,v,mask).transpose(1,2)
         output = output.reshape(batch_size,-1,self.embed_dim)
