@@ -44,9 +44,10 @@ class MHAttention(nn.Module):
 
 
         #mask形状为[batch_size,seq_len]
-        mask = mask.unsqueeze(1).unsqueeze(3)   #[batch_size,1,seq_len,1]
-        mask = mask.repeat(1,self.num_heads,1,1)    #[batch_size,num_heads,seq_len,1]
-        #mask = mask.reshape(-1,seq_len,1)   #[B*H,seq_len,1]
+        if len(mask.size()) == 2:       #[batch_size,seq_len]
+            mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
+        elif len(mask.size()) == 3:     #[batch_size,seq_len1,seq_len2]
+            mask = mask.unsqueeze(1)    #[batch_size,H,seq_len1,seq_len2]
 
         output,_ = self.sdpattention(q,k,v,mask)   
 
@@ -78,8 +79,10 @@ class MQAttention(nn.Module):
         k = k.unsqueeze(1)  #[batch_size,1,seq_len,head_dim]
         v = v.unsqueeze(1)  #[batch_size,1,seq_len,head_dim]
 
-        mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
-        #mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
+        if len(mask.size()) == 2:       #[batch_size,seq_len]
+            mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
+        elif len(mask.size()) == 3:     #[batch_size,seq_len1,seq_len2]
+            mask = mask.unsqueeze(1)    #[batch_size,H,seq_len1,seq_len2]
         output,_ = self.sdpattention(q,k,v,mask).transpose(1,2)
         output = output.reshape(batch_size,-1,self.embed_dim)
         output = self.o_proj(output)
@@ -109,15 +112,15 @@ class GQAttention(nn.Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
         q = q.reshape(batch_size,seq_len,self.num_heads,self.head_dim).transpose(1,2)
-        k = k.reshape(batch_size,seq_len,self.num_group_heads,self.head_dim).transpose(1,2)
-        v = v.reshape(batch_size,seq_len,self.num_group_heads,self.head_dim).transpose(1,2)
-        k = k.repeat(1,self.num_groups,1,1)
-        v = v.repeat(1,self.num_groups,1,1)
-        
-        #q = q.unsqueeze(2)  #[B,H,1,seq_len,embed_dim]
+        k = k.reshape(batch_size,seq_len,self.num_groups,self.head_dim).transpose(1,2)
+        v = v.reshape(batch_size,seq_len,self.num_groups,self.head_dim).transpose(1,2)
+        k = k.repeat(1,self.num_group_heads,1,1) #[B,H,seq_len,head_dim]
+        v = v.repeat(1,self.num_group_heads,1,1)
 
-        mask = mask.unsqueeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
-        #mask =mask.repeat(1,self.num_heads,1,1)     #[batch_size,num_heads,seq_len,1]
+        if len(mask.size()) == 2:       #[batch_size,seq_len]
+            mask = mask.unsqeeze(1).unsqueeze(3)     #[batch_size,1,seq_len,1]
+        elif len(mask.size()) == 3:     #[batch_size,seq_len1,seq_len2]
+            mask = mask.unsqueeze(1)    #[batch_size,H,seq_len1,seq_len2]
 
         output,_ = self.sdpattention(q,k,v,mask).transpose(1,2)
         output = output.reshape(batch_size,-1,self.embed_dim)
